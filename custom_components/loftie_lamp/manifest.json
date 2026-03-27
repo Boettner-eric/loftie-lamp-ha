@@ -1,0 +1,9 @@
+{
+  "domain": "loftie_lamp",
+  "name": "Loftie Lamp",
+  "version": "1.0.0",
+  "codeowners": [],
+  "dependencies": [],
+  "iot_class": "assumed_state",
+  "requirements": []
+}
