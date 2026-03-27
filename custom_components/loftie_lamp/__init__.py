@@ -12,6 +12,7 @@ import voluptuous as vol
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.discovery import async_load_platform
 
 from .api import LoftieClient
 from .const import DOMAIN
@@ -82,7 +83,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
     for platform in PLATFORMS:
         hass.async_create_task(
-            hass.helpers.discovery.async_load_platform(platform, DOMAIN, {}, config)
+            async_load_platform(hass, platform, DOMAIN, {}, config)
         )
 
     return True
