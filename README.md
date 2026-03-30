@@ -27,19 +27,13 @@ loftie_lamp:
   device_id: "your-loftie-device-id"
   gateway_url: "https://your-gateway-url"
   refresh_token: "your-firebase-refresh-token"
-  name: "Loftie Lamp"      # optional
-  scenes:                   # optional — each becomes a switch tile in Apple Home
+  name: "Loftie Lamp" # optional
+  scenes: # optional — each becomes a switch tile in Apple Home
     - bali
     - santaFe
     - budapest
     - night
     - day
-
-light:
-  - platform: loftie_lamp
-
-switch:
-  - platform: loftie_lamp
 ```
 
 Restart Home Assistant after saving.
@@ -50,12 +44,12 @@ To use named scenes (gradient presets from the Loftie app), place a `presets.jso
 
 ## Entities
 
-| Entity | Type | What it does |
-|--------|------|--------------|
-| `light.loftie_lamp` | Light | On/off, brightness (1-5), HS color picker, scene/mode effects |
-| `switch.loftie_bali` | Switch | Activates the Bali scene |
-| `switch.loftie_santa_fe` | Switch | Activates the Santa Fe scene |
-| ... | | One switch per scene in your `scenes` list |
+| Entity                   | Type   | What it does                                                  |
+| ------------------------ | ------ | ------------------------------------------------------------- |
+| `light.loftie_lamp`      | Light  | On/off, brightness (1-5), HS color picker, scene/mode effects |
+| `switch.loftie_bali`     | Switch | Activates the Bali scene                                      |
+| `switch.loftie_santa_fe` | Switch | Activates the Santa Fe scene                                  |
+| ...                      |        | One switch per scene in your `scenes` list                    |
 
 Scene switches are **stateful** — turning one on activates that scene and turns off the others. Turning a scene switch off turns the lamp off.
 
