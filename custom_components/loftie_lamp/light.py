@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import math
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
@@ -137,26 +136,37 @@ class LoftieLampLight(LightEntity):
                     if command == "mode":
                         await self._client.set_mode(name)
                     else:
-                        await self._client.set_scene(name)
+                        await self._client.set_scene(name, self._state.brightness)
                     self._state.is_on = True
                     self._state.active_scene = name
                     self._state.notify(source=self._on_state_changed)
                     self.async_write_ha_state()
                     return
 
-            if ATTR_BRIGHTNESS in kwargs:
-                self._state.brightness = kwargs[ATTR_BRIGHTNESS]
-                level = max(1, min(5, math.ceil(self._state.brightness / 51)))
-                await self._client.set_brightness(level)
+            brightness_changed = ATTR_BRIGHTNESS in kwargs
+            color_changed = ATTR_HS_COLOR in kwargs
 
-            if ATTR_HS_COLOR in kwargs:
+            if brightness_changed:
+                self._state.brightness = kwargs[ATTR_BRIGHTNESS]
+
+            if color_changed:
                 self._state.hs_color = kwargs[ATTR_HS_COLOR]
+                self._state.active_scene = None
+
+            if brightness_changed and not color_changed and self._state.active_scene:
+                # Re-apply the active scene at the new brightness level — this
+                # preserves scene colours instead of switching to nightLightOn mode.
+                await self._client.set_scene(
+                    self._state.active_scene, self._state.brightness
+                )
+            elif brightness_changed or color_changed:
+                # Encode brightness into the V channel so a single set_color call
+                # handles both colour and brightness without clobbering the scene.
                 self._state.active_scene = None
                 self._color_pending = True
                 if self._color_task is None or self._color_task.done():
                     self._color_task = asyncio.create_task(self._debounced_color())
-
-            if ATTR_BRIGHTNESS not in kwargs and ATTR_HS_COLOR not in kwargs and ATTR_EFFECT not in kwargs:
+            elif not brightness_changed and not color_changed and ATTR_EFFECT not in kwargs:
                 await self._client.turn_on()
 
             self._state.is_on = True
@@ -185,7 +195,8 @@ class LoftieLampLight(LightEntity):
         self._color_pending = False
 
         h, s = self._state.hs_color
-        r, g, b = _hsv_to_rgb100(h, s, 100)
+        v = (self._state.brightness / 255.0) * 100  # encode HA brightness into V
+        r, g, b = _hsv_to_rgb100(h, s, v)
         await self._client.set_color(r, g, b)
         # Notify after color is sent (scene cleared)
         self._state.notify(source=self._on_state_changed)

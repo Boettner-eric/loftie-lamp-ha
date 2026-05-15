@@ -6,6 +6,7 @@ stay in sync without polling the lamp.
 
 import logging
 from dataclasses import dataclass, field
+from datetime import timedelta
 
 import voluptuous as vol
 
@@ -13,6 +14,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.discovery import async_load_platform
+from homeassistant.helpers.event import async_track_time_interval
 
 from .api import LoftieClient
 from .const import DOMAIN
@@ -45,7 +47,7 @@ class LoftieState:
     """Shared lamp state — single source of truth for all entities."""
 
     is_on: bool = False
-    brightness: int = 255  # HA scale 0-255
+    brightness: int = 128  # HA scale 0-255; 128 ≈ 50% matches set_scene default
     hs_color: tuple[float, float] = (0.0, 0.0)
     active_scene: str | None = None  # scene key like "bali", or None for custom color
 
@@ -85,5 +87,22 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         hass.async_create_task(
             async_load_platform(hass, platform, DOMAIN, {}, config)
         )
+
+    async def _poll_state(_now=None):
+        """Sync local state from Firestore."""
+        try:
+            remote = await client.get_state()
+            state = hass.data[DOMAIN]["state"]
+            state.is_on = remote["is_on"]
+            state.brightness = remote["brightness"]
+            state.active_scene = remote["active_scene"]
+            state.notify()
+            _LOGGER.debug("Polled Loftie state: %s", remote)
+        except Exception:
+            _LOGGER.exception("Failed to poll Loftie state")
+
+    # Poll on startup and then every hour
+    hass.async_create_task(_poll_state())
+    async_track_time_interval(hass, _poll_state, timedelta(hours=1))
 
     return True

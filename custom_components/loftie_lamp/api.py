@@ -13,17 +13,13 @@ import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
 
-# Load app presets (gradient LED patterns extracted from decompiled Loftie app)
+# Load app presets (gradient LED patterns extracted from decompiled Loftie app).
+# Values are stored at full brightness (0–100); callers scale as needed.
 _PRESETS_PATH = os.path.join(os.path.dirname(__file__), "presets.json")
 APP_PRESETS: dict[str, list[dict]] = {}
 if os.path.exists(_PRESETS_PATH):
     with open(_PRESETS_PATH) as _f:
         APP_PRESETS = json.load(_f)
-    # Halve all preset values for lower brightness
-    for _name, _leds in APP_PRESETS.items():
-        for _led in _leds:
-            for _key in ("r", "g", "b", "w"):
-                _led[_key] = max(0, _led[_key] // 2)
 APP_PRESETS_LOWER: dict[str, str] = {k.lower(): k for k in APP_PRESETS}
 
 PRESET_DOC_IDS = {
@@ -63,6 +59,14 @@ PRESET_DOC_IDS = {
     "american": "Qnr6tgzKbweVVfwIUvW8",
     "speakNow": "3J5MXfVZiD0SgK4y8DGM",
 }
+
+
+def _scale_leds(leds: list[dict], scale: float) -> list[dict]:
+    """Scale RGBW values by factor (0.0–1.0), clamped to 0–100."""
+    return [
+        {k: min(100, round(led[k] * scale)) for k in ("r", "g", "b", "w")}
+        for led in leds
+    ]
 
 
 def _make_solid_leds(r: int, g: int, b: int, w: int = 0) -> list[dict]:
@@ -217,18 +221,6 @@ class LoftieClient:
         await self._send_config(config)
         await self._update_timestamp()
 
-    async def set_brightness(self, level: int) -> None:
-        """Set lamp brightness (1-5)."""
-        level = max(1, min(5, level))
-        config = await self._get_current_config()
-        config["nightLight"] = level
-        config["nightLightOn"] = True
-        await self._send_config(config)
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-        await self._update_firestore_fields({
-            "nightlight": {"integerValue": str(level)},
-            "updated_at": {"timestampValue": now},
-        })
 
     async def set_color(self, r: int, g: int, b: int, w: int = 0) -> None:
         """Set lamp to a solid color (r, g, b, w as 0-100)."""
@@ -253,13 +245,14 @@ class LoftieClient:
         await self._send_config(config)
         await self._update_timestamp()
 
-    async def set_scene(self, scene_name: str) -> None:
-        """Apply a named scene (app preset)."""
+    async def set_scene(self, scene_name: str, brightness: int = 128) -> None:
+        """Apply a named scene scaled to the given HA brightness (0–255)."""
         canonical = APP_PRESETS_LOWER.get(scene_name.lower())
         if canonical is None:
             _LOGGER.error("Unknown scene: %s", scene_name)
             return
-        leds = APP_PRESETS[canonical]
+        scale = max(0.0, min(1.0, brightness / 255.0))
+        leds = _scale_leds(APP_PRESETS[canonical], scale)
 
         config = await self._get_current_config()
         config["lampOn"] = True
@@ -277,6 +270,34 @@ class LoftieClient:
                 ref_field: {"referenceValue": ref_value},
             })
         await self._update_timestamp()
+
+    async def get_state(self) -> dict:
+        """Read device state from Firestore and return a parsed dict.
+
+        Returns dict with keys: is_on, brightness, active_scene.
+        """
+        doc = await self._read_device_state()
+        config = _parse_firestore_state(doc)
+
+        # Resolve active scene from lampMode1Ref
+        active_scene = None
+        fields = doc.get("fields", {})
+        ref = fields.get("lampMode1Ref", {}).get("referenceValue", "")
+        if ref:
+            doc_id = ref.rsplit("/", 1)[-1]
+            for name, pid in PRESET_DOC_IDS.items():
+                if pid == doc_id and name != "no":
+                    active_scene = name
+                    break
+
+        # Map nightLight (1-5) to HA brightness (0-255)
+        brightness = min(255, config["nightLight"] * 51)
+
+        return {
+            "is_on": config["lampOn"],
+            "brightness": brightness,
+            "active_scene": active_scene,
+        }
 
     def get_scene_names(self) -> list[str]:
         """Return available scene names (excluding 'no')."""

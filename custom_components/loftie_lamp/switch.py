@@ -93,7 +93,7 @@ class LoftieLampSceneSwitch(SwitchEntity):
             if self._command == "mode":
                 await self._client.set_mode(self._scene_name)
             else:
-                await self._client.set_scene(self._scene_name)
+                await self._client.set_scene(self._scene_name, self._state.brightness)
         except Exception:
             _LOGGER.exception("Failed to activate scene %s", self._scene_name)
             return
